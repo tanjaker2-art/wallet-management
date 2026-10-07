@@ -27,6 +27,10 @@ For exact PowerShell steps to start the local API and queue worker and test
 wallet deposits, rebates, and withdrawals, see
 [Local API and queue testing](docs/local-api-testing.md).
 
+For the application startup path, request lifecycle, data model, consistency
+measures, operational limitations, and current test coverage, see
+[Engineering overview](docs/engineering-overview.md).
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
