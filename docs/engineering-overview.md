@@ -173,9 +173,6 @@ or reconcile the wallet balance from the ledger.
   shares the application's database connection; if queue storage is moved to a
   different connection or driver, verify dispatch/commit ordering and consider
   after-commit dispatching so the worker cannot read an uncommitted transaction.
-- **The current integration tests issue sequential requests, not concurrent
-  requests.** Although they run on MySQL, they do not prove lock behavior under
-  simultaneous independent database connections.
 - **Amounts have no explicit maximum or precision validation in the request.**
   Confirm the business maximum and supported decimal precision, then validate
   them before relying on the database column as the only limit.
@@ -197,34 +194,40 @@ Run only database-free unit tests:
 php artisan test --testsuite=Unit
 ```
 
-Run MySQL integration tests (requires Docker):
+Run MySQL integration tests (requires the local MySQL service and a dedicated
+test schema):
 
 ```powershell
-php artisan test --testsuite=Integration
+if (-not (Test-Path .env.testing)) { Copy-Item .env.testing.example .env.testing }
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS wallet_management_test"
+composer test:integration
 ```
 
 Unit tests use PHPUnit directly and mock `WalletRepository` and the bus
 dispatcher; they do not boot Laravel or connect to any database. Integration
-tests use Testcontainers to start MySQL `9.6.0`, matching the configured
-production version. Laravel's `RefreshDatabase` runs the project's real
-migrations against that container and wraps each test's data changes in a
-rollback. Tests therefore never point at the developer's or production
-database.
+tests use the existing local MySQL server and connection credentials in
+`.env.testing`. `phpunit.xml` pins the schema to
+`wallet_management_test`, and the integration test refuses to run against any
+other database. Laravel's `RefreshDatabase` runs the project's real migrations
+against that schema and rolls back each test's data changes. Do not configure
+these credentials to target a production server.
 
 ### Current test inventory
 
 | Test | Type | What it checks |
 | --- | --- | --- |
 | `tests/Unit/WalletServiceTest.php` | Unit | With mocked persistence and bus dependencies, checks deposit arithmetic/transaction/job dispatch, withdrawal arithmetic/transaction creation, and rejection of insufficient funds without writes. It opens no database connection. |
-| `tests/Integration/WalletApiTest.php` | Integration | Against Testcontainers MySQL 9.6.0 and the production migrations, checks deposit plus rebate persistence, sequential deposits and rebates, withdrawal persistence, and wallet transaction history. `RefreshDatabase` rolls each test back. |
+| `tests/Integration/WalletApiTest.php` | Integration | Against local MySQL 9.6.0 and the production migrations, checks deposit plus rebate persistence, sequential deposits and rebates, withdrawal persistence, and wallet transaction history. `RefreshDatabase` rolls each test back. |
+| `tests/Integration/WalletConcurrencyTest.php` | Integration | Starts independent PHP processes behind a shared start barrier to issue same-wallet withdrawals and deposits at the same time against local MySQL. Checks that only one of three $80 withdrawals from a $100 wallet succeeds, and all three simultaneous $80 deposits are reflected. Uses `DatabaseMigrations` to reset the dedicated test schema around each test. |
 | `tests/Feature/ExampleTest.php` | Feature smoke test | The web root returns HTTP 200. |
 | `tests/Unit/ExampleTest.php` | Unit placeholder | Asserts `true`; it does not exercise application code. |
 
 The integration tests fake queue dispatch and invoke
-`CalculateRebate::handle()` directly; they do not verify the asynchronous
-database queue worker or retry/failure behavior. They also do not exercise
-simultaneous lock contention, API validation errors, or authorization. Add
-those cases as requirements are defined.
+`CalculateRebate::handle()` directly; the concurrency deposit subprocesses fake
+rebate dispatch so those tests isolate balance locking and do not verify the
+asynchronous queue worker or retry/failure behavior. The suite also does not
+exercise API validation errors or authorization. Add those cases as
+requirements are defined.
 
 ## 6. Useful operator commands
 

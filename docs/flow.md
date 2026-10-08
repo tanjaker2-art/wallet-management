@@ -44,12 +44,15 @@ This document describes the high-level flow for wallet operations and where key 
 - `tests/Unit/WalletServiceTest.php` tests service rules with a mocked
   repository and bus dispatcher; it does not connect to a database.
 - `tests/Integration/WalletApiTest.php` tests API persistence against a
-  Testcontainers MySQL 9.6.0 instance using the project's migrations. Each
-  test rolls back its database changes.
+  dedicated local MySQL `wallet_management_test` database using the project's
+  migrations. Each test rolls back its database changes.
+- `tests/Integration/WalletConcurrencyTest.php` runs simultaneous wallet
+  operations in separate PHP processes against the same local MySQL database.
+  It uses a start barrier and resets the dedicated schema between tests.
 - `tests/Feature/ExampleTest.php` checks the web root smoke response.
 - Run database-free unit tests with `php artisan test --testsuite=Unit`.
-- Run MySQL integration tests with `php artisan test --testsuite=Integration`
-  (Docker required).
+- Run MySQL integration tests with `composer test:integration` (local MySQL
+  and the dedicated test database required).
 
 ## Files of interest
 
