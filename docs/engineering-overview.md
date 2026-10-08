@@ -173,13 +173,9 @@ or reconcile the wallet balance from the ledger.
   shares the application's database connection; if queue storage is moved to a
   different connection or driver, verify dispatch/commit ordering and consider
   after-commit dispatching so the worker cannot read an uncommitted transaction.
-- **The concurrency test is not a true parallel test.** It makes two HTTP
-  requests sequentially and manually invokes the jobs. It checks arithmetic
-  for that sequence, not lock behavior under simultaneous independent
-  database connections.
-- **SQLite is used in tests.** Its locking semantics differ from MySQL and
-  PostgreSQL. Validate row-locking behavior against the same engine planned for
-  deployment.
+- **The current integration tests issue sequential requests, not concurrent
+  requests.** Although they run on MySQL, they do not prove lock behavior under
+  simultaneous independent database connections.
 - **Amounts have no explicit maximum or precision validation in the request.**
   Confirm the business maximum and supported decimal precision, then validate
   them before relying on the database column as the only limit.
@@ -195,31 +191,40 @@ Run all tests from the repository root:
 php artisan test
 ```
 
-Run only the wallet feature tests:
+Run only database-free unit tests:
 
 ```powershell
-php artisan test tests/Feature/WalletDepositRebateTest.php tests/Feature/WalletConcurrentDepositsTest.php
+php artisan test --testsuite=Unit
 ```
 
-`phpunit.xml` configures tests to use in-memory SQLite, the `sync` queue
-connection, and array-backed cache/session/mail services. `RefreshDatabase`
-resets the feature-test schema. Tests therefore do not require the local
-MySQL database, a running web server, or a separate worker.
+Run MySQL integration tests (requires Docker):
+
+```powershell
+php artisan test --testsuite=Integration
+```
+
+Unit tests use PHPUnit directly and mock `WalletRepository` and the bus
+dispatcher; they do not boot Laravel or connect to any database. Integration
+tests use Testcontainers to start MySQL `9.6.0`, matching the configured
+production version. Laravel's `RefreshDatabase` runs the project's real
+migrations against that container and wraps each test's data changes in a
+rollback. Tests therefore never point at the developer's or production
+database.
 
 ### Current test inventory
 
 | Test | Type | What it checks |
 | --- | --- | --- |
-| `tests/Feature/WalletDepositRebateTest.php` | Feature | A JSON deposit returns 201, inserts a deposit transaction, dispatches `CalculateRebate`, and after manually handling the job creates a `1.00` rebate transaction and leaves a `101.00` balance for a `100.00` deposit. |
-| `tests/Feature/WalletConcurrentDepositsTest.php` | Feature | Two sequential deposit requests (`100.00`, then `50.00`) both return 201; manually handling their rebate jobs results in a `151.50` balance. Despite its name, it does not create truly simultaneous requests. |
+| `tests/Unit/WalletServiceTest.php` | Unit | With mocked persistence and bus dependencies, checks deposit arithmetic/transaction/job dispatch, withdrawal arithmetic/transaction creation, and rejection of insufficient funds without writes. It opens no database connection. |
+| `tests/Integration/WalletApiTest.php` | Integration | Against Testcontainers MySQL 9.6.0 and the production migrations, checks deposit plus rebate persistence, sequential deposits and rebates, withdrawal persistence, and wallet transaction history. `RefreshDatabase` rolls each test back. |
 | `tests/Feature/ExampleTest.php` | Feature smoke test | The web root returns HTTP 200. |
 | `tests/Unit/ExampleTest.php` | Unit placeholder | Asserts `true`; it does not exercise application code. |
 
-The feature tests use `Bus::fake()` and invoke `CalculateRebate::handle()`
-directly; they do not verify the database queue worker, queue retry behavior,
-failed-job handling, API validation errors, insufficient funds, authorization,
-or actual database lock contention. Those cases should be added as the behavior
-and production requirements are defined.
+The integration tests fake queue dispatch and invoke
+`CalculateRebate::handle()` directly; they do not verify the asynchronous
+database queue worker or retry/failure behavior. They also do not exercise
+simultaneous lock contention, API validation errors, or authorization. Add
+those cases as requirements are defined.
 
 ## 6. Useful operator commands
 

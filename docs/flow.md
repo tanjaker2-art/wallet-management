@@ -24,9 +24,10 @@ This document describes the high-level flow for wallet operations and where key 
 
 1. Client calls `POST /api/wallets/{wallet}/deposit` with an `amount`.
 2. `WalletController::deposit()` validates the request and calls `WalletService::deposit()`.
-3. `WalletService::deposit()` begins a DB transaction, locks the wallet row with `lockForUpdate()`, increments the balance, creates a `deposit` transaction, and commits.
-4. A `CalculateRebate` job is dispatched with the deposit transaction ID.
-5. The queue worker picks up the job, locks the wallet row, credits 1% rebate as a `rebate` transaction, and updates the wallet balance.
+3. `WalletService::deposit()` begins a DB transaction, locks the wallet row with `lockForUpdate()`, increments the balance, and creates a `deposit` transaction.
+4. The service dispatches `CalculateRebate` before the surrounding transaction commits. With the configured database queue on the same database connection, the queued row becomes visible when that transaction commits.
+5. The controller returns the deposit transaction with HTTP 201. The rebate may still be pending.
+6. The queue worker picks up the job, locks the wallet row, credits a 1% rebate as a `rebate` transaction, and updates the wallet balance.
 
 ## Request flow (withdraw)
 
@@ -40,9 +41,15 @@ This document describes the high-level flow for wallet operations and where key 
 
 ## Tests
 
-- Tests are in `tests/Feature`:
-  - `WalletDepositRebateTest` — verifies deposit + rebate behavior.
-  - `WalletConcurrentDepositsTest` — simulates concurrent deposits and rebate application.
+- `tests/Unit/WalletServiceTest.php` tests service rules with a mocked
+  repository and bus dispatcher; it does not connect to a database.
+- `tests/Integration/WalletApiTest.php` tests API persistence against a
+  Testcontainers MySQL 9.6.0 instance using the project's migrations. Each
+  test rolls back its database changes.
+- `tests/Feature/ExampleTest.php` checks the web root smoke response.
+- Run database-free unit tests with `php artisan test --testsuite=Unit`.
+- Run MySQL integration tests with `php artisan test --testsuite=Integration`
+  (Docker required).
 
 ## Files of interest
 

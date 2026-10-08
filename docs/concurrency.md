@@ -17,13 +17,15 @@ This document explains how the wallet system prevents race conditions and ensure
 ## Why pessimistic locking
 
 - Works well for high-contention single-row updates (wallet balance). It serializes concurrent writers at the DB level, keeping business logic simple.
-- It relies on DB support for row locking (MySQL/Postgres). With SQLite the behavior is different (file / page locking), and tests run against in-memory SQLite for speed.
+- It relies on database support for row locking. Integration tests use
+  Testcontainers with MySQL 9.6.0 to match the configured production version,
+  exercising locking behavior on the production database engine.
 
 ## Alternatives and enhancements
 
 - Optimistic locking: add a `version` (or `updated_at`) column and use `WHERE version = ?` updates or a library to detect conflicts and retry. This is useful when conflicts are rare and you want higher concurrency.
 - Use atomic DB expressions: perform balance changes with SQL `UPDATE wallets SET balance = balance + ? WHERE id = ?` to avoid reading-then-writing if your DB driver supports precise decimal arithmetic.
-- Choose queue driver carefully: use a reliable queue (Redis, database, or external queue) and run `php artisan queue:work` to process rebate jobs. For tests we use `sync`/manual job handling.
+- Choose queue driver carefully: use a reliable queue (Redis, database, or external queue) and run `php artisan queue:work` to process rebate jobs. Unit tests mock the repository and dispatcher without a database; integration tests use MySQL Testcontainers and manually handle rebate jobs.
 
 ## Operational notes
 
